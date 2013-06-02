@@ -13,7 +13,6 @@
  * for linux: require root priv or mount usbfs with devgid=GID,devmode=MODE
  */
 
-#include <libusb-1.0/libusb.h>
 #include <sys/types.h>
 #include <ctype.h>
 #include <err.h>
@@ -203,24 +202,23 @@ int main(int argc, char **argv)
 
 	set_signal_handlers();
 
-	if (libusb_init(NULL ) < 0)
+	if (hid_init() < 0)
 	{
 		fprintf(stderr, "cannot init\n");
 		exit(1);
 	}
-	libusb_set_debug(NULL, flag_verbose);
 
 	if ((rdpc101_list = rdpc101_get_list(dev_info)) == NULL )
 	{
 		fprintf(stderr, "Cannot found rdpc101.\n");
-		rdpc101_cleanup(NULL, dev_info);
+		rdpc101_cleanup(dev_info);
 		exit(1);
 	}
 
 	if (!(rp = rdpc101_device(rdpc101_list, dev_index)))
 	{
 		fprintf(stderr, "invalid dev_index\n");
-		rdpc101_cleanup(NULL, dev_info);
+		rdpc101_cleanup(dev_info);
 		exit(1);
 	}
 
@@ -231,16 +229,10 @@ int main(int argc, char **argv)
 	else
 	{
 		int ret;
-		if ((ret = rdpc101_claim_hid(rp)) < 0)
-		{
-			error_libusb("claim_interface", ret);
-			rdpc101_cleanup(NULL, dev_info);
-			exit(1);
-		}
 		if (rdpc101_update_state(rp) < 0)
 		{
 			fprintf(stderr, "Cannot stat dev: %d", dev_index);
-			rdpc101_cleanup(NULL, dev_info);
+			rdpc101_cleanup(dev_info);
 			exit(1);
 		}
 	}
@@ -255,7 +247,7 @@ int main(int argc, char **argv)
 		{
 			fprintf(stderr, "Cannot set band to %s\n",
 					(band == RDPC_BAND_AM) ? "AM" : "FM");
-			rdpc101_cleanup(NULL, dev_info);
+			rdpc101_cleanup(dev_info);
 			exit(1);
 		}
 		if (freq != rp->cur.freq && rdpc101_set_freq(rp, freq) < 0)
@@ -264,7 +256,7 @@ int main(int argc, char **argv)
 
 			sstr_freq(freqstr, sizeof freqstr, freq);
 			fprintf(stderr, "Cannot set freq to %s\n", freqstr);
-			rdpc101_cleanup(NULL, dev_info);
+			rdpc101_cleanup(dev_info);
 			exit(1);
 		}
 #if 1
@@ -281,7 +273,7 @@ int main(int argc, char **argv)
 		if (rdpc101_band_index(rp->cur.freq) < 0)
 		{
 			fprintf(stderr, "unknown band.\n");
-			rdpc101_cleanup(NULL, dev_info);
+			rdpc101_cleanup(dev_info);
 			exit(1);
 		}
 		else
@@ -291,7 +283,7 @@ int main(int argc, char **argv)
 			if ((ret = rdpc101_seek(rp, flag_seek)) < 0)
 			{
 				fprintf(stderr, "Cannot seek\n");
-				rdpc101_cleanup(NULL, dev_info);
+				rdpc101_cleanup(dev_info);
 				exit(1);
 			}
 			rdpc101_display_seeking(rp);
@@ -304,7 +296,7 @@ int main(int argc, char **argv)
 		if (rdpc101_scan(rp, flag_scan) < 0)
 		{
 			fprintf(stderr, "Cannot scan\n");
-			rdpc101_cleanup(NULL, dev_info);
+			rdpc101_cleanup(dev_info);
 			exit(1);
 		}
 	}
@@ -313,10 +305,6 @@ int main(int argc, char **argv)
 		if (flag_ma != rp->cur.ma && rdpc101_set_ma(rp, flag_ma) < 0)
 			fprintf(stderr, "Cannot set ma to %d\n", flag_ma);
 	}
-	if ((ret = rdpc101_claim_hid(rp)) < 0)
-		error_libusb("claim_interface", ret);
-	rdpc101_cleanup(NULL, dev_info);
-	exit(0);
 }
 
 /* utils */
@@ -346,7 +334,7 @@ get_dev_info(void)
 
 void rdpc101_sighand(int sig)
 {
-	rdpc101_cleanup(NULL, get_dev_info());
+	rdpc101_cleanup(get_dev_info());
 	fprintf(stderr, "\nCaught sig %d\n", sig);
 	exit(1);
 }
@@ -361,7 +349,7 @@ sstr_freq(char *buf, int size, int freq)
 		snprintf(buf, size, "%3d.%2.2d MHz", freq / 100, freq % 100);
 		break;
 	case RFD_AM:
-		snprintf(buf, size, "%6d Khz", freq);
+		snprintf(buf, size, "%6d KHz", freq);
 		break;
 	default:
 		snprintf(buf, size, "---- _Hz");
@@ -395,27 +383,17 @@ void rdpc101_list_device(struct rdpc101_dev *rp)
 	char freqstr[FREQSTR_MAX];
 	int i;
 
-	printf("No Bus:Dev  Station    Audio    Int\n");
+	printf("No Serial  Station    Audio    Int\n");
 	for (p = rp, i = 0; p; p = p->next, i++)
 	{
 		int ret;
 
-		if ((ret = rdpc101_claim_hid(p)) < 0)
-		{
-			error_libusb("claim_interface", ret);
-			return;
-		}
 		rdpc101_update_state(p);
 		sstr_freq(freqstr, sizeof freqstr, p->cur.freq);
-		printf("%2d %03x:%03x  %10s %-8s %2d\n", i,
-				libusb_get_bus_number(p->dev),
-				libusb_get_device_address(p->dev), freqstr, str_ma(p->cur.ma),
+		printf("%2d %s  %10s %-8s %2d\n", i,
+				p->dev->serial_number,
+				freqstr, str_ma(p->cur.ma),
 				p->cur.sig_intensity);
-		if ((ret = rdpc101_release_hid(p)) < 0)
-		{
-			error_libusb("release_interface", ret);
-			return;
-		}
 	}
 }
 
@@ -474,32 +452,30 @@ void display_freq(struct rdpc101_dev *rp)
 
 void rdpc101_display_seeking(struct rdpc101_dev *rp)
 {
-	struct timespec t =
-	{ 0, 200 * 1000 * 1000 };
+	struct timespec t = { 0, 200 * 1000 * 1000 };
 	int ret;
-	char *estr = "\033[00G";
 	int tty = isatty(1);
 
 	do
 	{
-		if (tty)
+		if(tty)
 		{
-			printf("%s", estr);
+			putchar('\r');
 			display_freq(rp);
 		}
-		if (nanosleep(&t, NULL ) != 0)
+		if (nanosleep(&t, NULL) != 0)
 		{
 			perror("nanosleep");
 			return;
 		}
 		ret = rdpc101_update_state(rp);
-	} while ((rp->cur.ma & RDPC_MA_SEEKING_MASK)&& ret == 0);if
-(	ret)
-	Error("seek failed:(%d)", ret);
+	} while ((rp->cur.ma & RDPC_MA_SEEKING_MASK) && ret == 0);
+	if(ret)
+		Error("seek failed:(%d)", ret);
 	else
 	{
 		if (tty)
-		printf("%s", estr);
+			putchar('\r');
 		display_freq(rp);
 		printf("  %3d\n", rp->cur.sig_intensity);
 	}

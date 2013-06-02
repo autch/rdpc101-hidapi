@@ -6,10 +6,11 @@
  * http://libusb.wiki.sourceforge.net/
  */
 
-#include <libusb-1.0/libusb.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include "rdpc101.h"
+#include <hidapi.h>
 
 __RCSID("$Id: librdpc101.c,v 1.3 2009/07/07 13:33:53 nishio Exp $");
 
@@ -25,40 +26,14 @@ static struct radio_freq_desc rfd[] =
 
 #define NRFDS	(sizeof (rfd) / sizeof (struct radio_freq_desc))
 
-const char const *
-strlibusb_error(enum libusb_error errnum)
+int error_hidapi(const char *label, hid_device* device)
 {
-	static const char const *errstr[] =
-	{ "libusb: Success", "libusb: Input/output error",
-			"libusb: Invalid parameter",
-			"libusb: Access denied (insufficient permissions)",
-			"libusb: No such device (it may have been disconnected)",
-			"libusb: Entity not found", "libusb: Resource busy",
-			"libusb: Operation timed out", "libusb: Overflow",
-			"libusb: Pipe error",
-			"libusb: System call interrupted (perhaps due to signal)",
-			"libusb: Insufficient memory",
-			"libusb: Operation not supported or unimplemented on this platform",
-			NULL };
-	static const int maxno = (sizeof errstr / sizeof *errstr);
+	fprintf(stderr, "%s: %s\n", label, hid_error(device));
 
-	if (0 <= -errnum && -errnum < maxno)
-		return errstr[-errnum];
-	else if (errnum == LIBUSB_ERROR_OTHER)
-		return "libusb: Other error";
-	else
-		return "libusb: unknown";
-}
-;
-
-int error_libusb(const char *label, enum libusb_error errnum)
-{
-	fprintf(stderr, "%s: %s\n", label, strlibusb_error(errnum));
-
-	return errnum;
+	return 0;
 }
 
-void rdpc101_cleanup(struct libusb_context *ctx, struct dev_info *dev_info)
+void rdpc101_cleanup(struct dev_info *dev_info)
 {
 	struct rdpc101_dev *cp;
 
@@ -68,16 +43,14 @@ void rdpc101_cleanup(struct libusb_context *ctx, struct dev_info *dev_info)
 
 		if (cp->handle)
 		{
-			if (cp->hid_index >= 0)
-				libusb_release_interface(cp->handle, cp->hid_index);
-			libusb_close(cp->handle);
+			hid_close(cp->handle);
 		}
 		pp = cp;
 		cp = cp->next;
 		free(pp);
 	}
-	libusb_free_device_list(dev_info->devs, 1);
-	libusb_exit(ctx);
+	hid_free_enumeration(dev_info->devs);
+	hid_exit();
 }
 
 enum radio_freq_desc_index rdpc101_band_index(int freq)
@@ -140,26 +113,6 @@ rdpc101_device(struct rdpc101_dev *rp, int index)
 	return NULL ;
 }
 
-static int rdpc101_hid_interface(libusb_device *dev)
-{
-	struct libusb_config_descriptor *config;
-	struct libusb_interface *intf;
-	int n;
-	int ret;
-
-	if ((ret = libusb_get_config_descriptor(dev, 0, &config)) < 0)
-		return LIBUSB_ERROR_NO_DEVICE;
-
-	n = config->bNumInterfaces;
-	for (intf = (struct libusb_interface *) config->interface; n > 0;
-			n--, intf++)
-	{
-		if (intf->altsetting->bInterfaceClass == LIBUSB_CLASS_HID)
-			return intf->altsetting->bInterfaceNumber;
-	}
-	return LIBUSB_ERROR_NO_DEVICE;
-}
-
 static struct rdpc101_dev *
 rdpc101_new_node(void)
 {
@@ -172,7 +125,6 @@ rdpc101_new_node(void)
 	p->next = NULL;
 	p->dev = NULL;
 	p->handle = NULL;
-	p->hid_index = -1;
 	p->cur.ma = RDPC_MA_UNSPEC;
 	p->cur.sig_intensity = 0;
 	p->cur.freq = 0;
@@ -180,7 +132,7 @@ rdpc101_new_node(void)
 }
 
 static struct rdpc101_dev *
-rdpc101_append_node(struct rdpc101_dev *cur, libusb_device *dev)
+rdpc101_append_node(struct rdpc101_dev *cur, struct hid_device_info* dev)
 {
 	struct rdpc101_dev *p;
 	if (cur->next != NULL )
@@ -189,7 +141,6 @@ rdpc101_append_node(struct rdpc101_dev *cur, libusb_device *dev)
 	}
 	p = rdpc101_new_node();
 	p->dev = dev;
-	p->hid_index = rdpc101_hid_interface(dev);
 	cur->next = p;
 	return p;
 }
@@ -199,53 +150,33 @@ rdpc101_get_list(struct dev_info *dip)
 {
 	struct rdpc101_dev head;
 	struct rdpc101_dev *cur = &head;
-	libusb_device *dev, **devs;
-	int n = libusb_get_device_list(NULL, &dip->devs);
+	struct hid_device_info* dev;
 
-	if (n < 0)
-		return NULL ;
+	dip->devs = hid_enumerate(RDPC101_VENDORID, RDPC101_PRODUCTID);
+	if (dip->devs == NULL)
+		return NULL;
 
 	head.next = NULL;
 
-	devs = dip->devs;
-	for (dev = *devs; dev; dev = *++devs)
+	for (dev = dip->devs; dev; dev = dev->next)
 	{
-		struct libusb_device_descriptor desc;
-
-		if (libusb_get_device_descriptor(dev, &desc) < 0)
-			continue;
-		if (desc.idVendor == RDPC101_VENDORID
-				&& desc.idProduct == RDPC101_PRODUCTID)
-			if (!(cur = rdpc101_append_node(cur, dev)))
-				return NULL ;
+		if (!(cur = rdpc101_append_node(cur, dev)))
+			return NULL ;
 	}
 	return (dip->rp = head.next);
 }
 
-static libusb_device_handle *
+hid_device*
 get_handle(struct rdpc101_dev *rp)
 {
 	int ret;
 
 	if (rp->handle)
 		return rp->handle;
-	if ((ret = libusb_open(rp->dev, &rp->handle)) < 0)
+	if ((rp->handle = hid_open(RDPC101_VENDORID, RDPC101_PRODUCTID, rp->dev->serial_number)) == NULL)
 	{
-		error_libusb("open", ret);
-		return NULL ;
-	}
-
-	switch ((ret = libusb_kernel_driver_active(rp->handle, rp->hid_index)))
-	{
-	case 0:
-		break;
-	case 1:
-		if ((ret = libusb_detach_kernel_driver(rp->handle, rp->hid_index)) < 0)
-			error_libusb("detach_kernel_driver", ret);
-		break;
-	default:
-		error_libusb("kerbel_deriver_active", ret);
-		break;
+		error_hidapi("open", rp->handle);
+		return NULL;
 	}
 	return rp->handle;
 }
@@ -271,33 +202,13 @@ static int check_all_zero(unsigned char *p, int size)
 	return TRUE;
 }
 
-int rdpc101_claim_hid(struct rdpc101_dev *rp)
-{
-	return libusb_claim_interface(get_handle(rp), rp->hid_index);
-}
-
-int rdpc101_release_hid(struct rdpc101_dev *rp)
-{
-	return libusb_release_interface(get_handle(rp), rp->hid_index);
-}
-
 int rdpc101_update_state(struct rdpc101_dev *rp)
 {
-	unsigned char *packet = NULL;
-	static int size = -1;
+	uint8_t packet[1024];
 	int freq, ma, mma;
 	int ret;
 
-	if (size < 0 && (size = libusb_get_max_packet_size(rp->dev, RDPC_EP1)) < 0)
-		return size;
-
-	if ((packet = malloc(size)) == NULL )
-		return -1;
-
-	if ((ret = libusb_interrupt_transfer(get_handle(rp), RDPC_EP1, packet, size,
-			&size, RDPC101_TIMEOUT)) < 0)
-	{
-		free(packet);
+	if((ret = hid_read(get_handle(rp), packet, sizeof packet)) < 0) {
 		return ret;
 	}
 
@@ -306,36 +217,28 @@ int rdpc101_update_state(struct rdpc101_dev *rp)
 			| packet[RDPC_STATE_INDEX_FREQ_LO]);
 	ma = packet[RDPC_STATE_INDEX_MA];
 	mma = ma & ~RDPC_MA_SEEKING_MASK;
-	if (size != RDPC101_STATE_PACKET_SIZE || packet[0] != 0x12
+	if (ret != RDPC101_STATE_PACKET_SIZE || packet[0] != 0x12
 			|| (mma != RDPC_MA_MONO && mma != RDPC_MA_STEREO
 					&& mma != (0x3e & ~RDPC_MA_SEEKING_MASK)&&
 					mma != (0x3f & ~RDPC_MA_SEEKING_MASK) &&
 					mma != (0xa7 & ~RDPC_MA_SEEKING_MASK))||
 					rdpc101_band(freq) == RDPC_BAND_ERROR ||
 					!check_all_zero(&packet[RDPC_STATE_INDEX_MAX],
-							size - RDPC_STATE_INDEX_MAX))
-					dump_packet("stat pkt", packet, size);
+							ret - RDPC_STATE_INDEX_MAX))
+					dump_packet("stat pkt", packet, ret);
 	rp->cur.sig_intensity = packet[RDPC_STATE_INDEX_SIGINTENSITY];
 	rp->cur.freq = freq;
 	rp->cur.ma = ma;
 
-	free(packet);
-	return ret;
+	return 0;
 }
 
 int rdpc101_set_report(struct rdpc101_dev *rp, unsigned char *data,
 		int data_size)
 {
-	uint8_t bmRequestType = BMRT_OUT | LIBUSB_REQUEST_TYPE_CLASS
-			| LIBUSB_RECIPIENT_INTERFACE;
-	uint8_t bRequest = HID_SET_REPORT;
-	uint16_t wValue = (HID_RT_FEATURE << 8) | data[0];
 	int ret;
 
-	if ((ret = libusb_control_transfer(get_handle(rp), bmRequestType, bRequest,
-			wValue, (uint16_t) rp->hid_index, data, (uint16_t) data_size,
-			RDPC101_TIMEOUT)) < 0)
-	{
+	if((ret = hid_send_feature_report(get_handle(rp), data, data_size)) < 0) {
 		dump_packet("control_transfer", data, data_size);
 		return ret;
 	}

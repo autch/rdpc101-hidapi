@@ -24,7 +24,6 @@ AC_FUNC_MALLOC
 AC_CHECK_FUNCS([memset strdup strerror])
 
 PKG_CHECK_MODULES(hidapi, hidapi >= 0.7.0)
-PKG_CHECK_MODULES(libusb, libusb-1.0 >= 1.0.0)
 
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT

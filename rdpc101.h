@@ -3,7 +3,7 @@
  */
 #if !defined(__RDPC101_H)
 #define __RDPC101_H
-#include <libusb-1.0/libusb.h>
+#include <hidapi.h>
 
 #if !defined __RCSID
 #define __RCSID(_s)	__asm(".section rcsid\n\t.asciz \"" _s "\"\n\t.previous")
@@ -90,11 +90,6 @@ enum rdpc_state_index {
     RDPC_STATE_INDEX_MAX
 };
 
-enum rdpc101_hid_ep {
-    RDPC_EP1 = LIBUSB_ENDPOINT_IN | 1,
-    RDPC_EP2 = LIBUSB_ENDPOINT_OUT | 2
-};
-
 enum radio_freq_desc_index {
     RFD_ERROR = -1,
     RFD_AM = 0,
@@ -110,9 +105,10 @@ struct rdpc_state {
 
 struct rdpc101_dev {
     struct rdpc101_dev *next;
-    libusb_device *dev;
-    libusb_device_handle *handle;
-    int hid_index;
+//    libusb_device *dev;
+//    libusb_device_handle *handle;
+    struct hid_device_info* dev;
+    hid_device* handle;
     struct rdpc_state prev;
     struct rdpc_state cur;
 };
@@ -125,13 +121,12 @@ struct radio_freq_desc {
 };
 
 struct dev_info {
-    libusb_device **devs;
+    struct hid_device_info* devs;
     struct rdpc101_dev *rp;
 };
 
-const char const *strlibusb_error(enum libusb_error errnum);
-int error_libusb(const char *label, enum libusb_error errnum);
-void rdpc101_cleanup(struct libusb_context *ctx, struct dev_info *dev_info);
+int error_hidapi(const char *label, hid_device* device);
+void rdpc101_cleanup(struct dev_info *dev_info);
 enum rdpc_band rdpc101_band(int freq);
 enum radio_freq_desc_index rdpc101_band_index(int freq);
 struct rdpc101_dev *rdpc101_device(struct rdpc101_dev *rp, int index);
