@@ -152,7 +152,7 @@ rdpc101_get_list(struct dev_info *dip)
 	struct rdpc101_dev *cur = &head;
 	struct hid_device_info* dev;
 
-	dip->devs = hid_enumerate(0, 0);
+	dip->devs = hid_enumerate(RDPC101_VENDORID, RDPC101_PRODUCTID);
 	if (dip->devs == NULL)
 		return NULL;
 
@@ -160,13 +160,6 @@ rdpc101_get_list(struct dev_info *dip)
 
 	for (dev = dip->devs; dev; dev = dev->next)
 	{
-
-	printf("Device Found\n  type: %04hx %04hx\n  path: %s\n  serial_number: %ls\n",
-			dev->vendor_id, dev->product_id, dev->path, dev->serial_number);
-
-if(dev->vendor_id != RDPC101_VENDORID || dev->product_id != RDPC101_PRODUCTID)
-  continue; 
-
 		if (!(cur = rdpc101_append_node(cur, dev)))
 			return NULL ;
 	}
