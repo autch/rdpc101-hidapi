@@ -231,7 +231,7 @@ int main(int argc, char **argv)
 		int ret;
 		if (rdpc101_update_state(rp) < 0)
 		{
-			fprintf(stderr, "Cannot stat dev: %d", dev_index);
+			fprintf(stderr, "Cannot stat dev: %d\n", dev_index);
 			rdpc101_cleanup(dev_info);
 			exit(1);
 		}
