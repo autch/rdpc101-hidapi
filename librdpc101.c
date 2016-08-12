@@ -2,8 +2,8 @@
  * Control library for SUNTAC RDPC101.
  * See http://suntac.jp/products/usb/rdpc101.html
  *
- * require: libusb-1.0
- * http://libusb.wiki.sourceforge.net/
+ * require: hidapi
+ * http://www.signal11.us/oss/hidapi/
  */
 
 #include <stdio.h>

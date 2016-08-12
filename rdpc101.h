@@ -105,8 +105,6 @@ struct rdpc_state {
 
 struct rdpc101_dev {
     struct rdpc101_dev *next;
-//    libusb_device *dev;
-//    libusb_device_handle *handle;
     struct hid_device_info* dev;
     hid_device* handle;
     struct rdpc_state prev;

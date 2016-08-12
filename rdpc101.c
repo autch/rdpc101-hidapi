@@ -2,11 +2,8 @@
  * Control program for SUNTAC RDPC101.
  * See http://suntac.jp/products/usb/rdpc101.html
  *
- * compile
- * $ cc rdpc101.c librdpc101.c -o rdpc101 -lusb-1.0
- *
- * required: libusb-1.0
- * http://libusb.wiki.sourceforge.net/
+ * required: hidapi
+ * http://www.signal11.us/oss/hidapi/
  *
  * $ rdpc101 -h for help.
  *
@@ -534,20 +531,6 @@ int rdpc101_scan(struct rdpc101_dev *rp, enum rdpc_band band)
 	}
 	return ret;
 }
-
-#if 0
-char *
-get_istring(libusb_device_handle *h, int index)
-{
-	char buf[ISTRING_MAX];
-
-	if (libusb_get_string_descriptor_ascii(h, index, buf, sizeof buf) < 0)
-	{
-		return strerror(errno);
-	}
-	return strdup(buf);
-}
-#endif
 
 /*-
  * Copyright (c) 2009 NISHIO Yasuhiro <nishio@hh.iij4u.or.jp>

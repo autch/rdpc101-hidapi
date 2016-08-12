@@ -2,14 +2,10 @@
  * test program for SUNTAC RDPC101.
  * See http://suntac.jp/products/usb/rdpc101.html
  *
- * compile
- * $ cc rdpc-tect.c librdpc101.c  -o rdpc-test -lusb-1.0
- *
- * required: libusb-1.0
- * http://libusb.wiki.sourceforge.net/
+ * required: hidapi
+ * http://www.signal11.us/oss/hidapi/
  */
 
-#include <libusb.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
